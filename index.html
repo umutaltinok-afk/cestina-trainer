@@ -953,6 +953,7 @@ function resetProgress(){prog={v:1,items:{},sessions:0,streak:{last:null,count:0
 function poolFor(mode){
   let p=basePool();
   if(/^L[1-6]$/.test(mode))return p.filter(q=>q.l===+mode[1]);
+  if(mode.startsWith('mix:')){const set=new Set(mode.slice(4).split(',').map(Number));return p.filter(q=>set.has(q.l))}
   if(mode==='weak'){const w=weakIds();return p.filter(q=>w.has(q.id))}
   if(mode.startsWith('thread:')){const t=mode.slice(7);return p.filter(q=>(q.tags||[]).includes(t))}
   if(mode==='threads')return [];
@@ -973,7 +974,8 @@ function buildSession(mode,len){
 /* ── setup screen ── */
 function renderSetup(){
   const lg=$('lekGrid');lg.innerHTML='';
-  for(let l=1;l<=6;l++){const b=document.createElement('button');b.className='mode';b.type='button';b.dataset.mode='L'+l;b.innerHTML='<b>Lekce '+l+'</b><em data-count="L'+l+'">0</em>';b.onclick=()=>setMode('L'+l);lg.appendChild(b)}
+  for(let l=1;l<=6;l++){const b=document.createElement('button');b.className='mode';b.type='button';b.dataset.mode='L'+l;b.innerHTML='<b>Lekce '+l+'</b><em data-count="L'+l+'">0</em>';b.onclick=()=>toggleLesson(l);lg.appendChild(b)}
+  const hint=document.createElement('p');hint.className='note';hint.id='mixNote';hint.textContent='Tap one lesson, or several to mix them.';lg.parentNode.insertBefore(hint,lg.nextSibling);
   const m=$('modes');m.innerHTML='';
   [['all','Vše L1–6','Every item from all six lessons'],['weak','Slabá místa','Items missed in your last three attempts'],['threads','Vlákna','Cross-lesson threads: kde? × kam?, jít × jet, past…']].forEach(([k,t,s])=>{
     const b=document.createElement('button');b.className='mode';b.type='button';b.dataset.mode=k;b.innerHTML='<b>'+t+'</b><span>'+s+'</span><em data-count="'+k+'">0</em>';b.onclick=()=>setMode(k);m.appendChild(b)});
@@ -983,6 +985,9 @@ function renderSetup(){
   $('lenientChips').querySelectorAll('.chip').forEach(c=>c.onclick=()=>{prefs.lenient=c.dataset.lenient==='1';savePrefs();renderSetupCounts()});
   renderSetupCounts();
 }
+function selectedLessons(){if(/^L[1-6]$/.test(prefs.mode))return [+prefs.mode[1]];if(prefs.mode.startsWith('mix:'))return prefs.mode.slice(4).split(',').map(Number);return []}
+function toggleLesson(l){let sel=selectedLessons();if(sel.includes(l)){sel=sel.filter(x=>x!==l);if(!sel.length)sel=[l]}else sel.push(l);sel.sort((a,b)=>a-b);
+  setMode(sel.length===1?'L'+sel[0]:'mix:'+sel.join(','))}
 function setMode(mode){
   if(mode==='threads'){const tc=threadCounts();const first=Object.keys(THREADS).find(k=>tc[k]>=THREAD_MIN);prefs.mode=first?'thread:'+first:'threads'}
   else prefs.mode=mode;
@@ -995,7 +1000,8 @@ function renderSetupCounts(){
     else n=poolFor(k).length;
     e.textContent=n});
   const onThreads=prefs.mode==='threads'||prefs.mode.startsWith('thread:');
-  document.querySelectorAll('.mode').forEach(b=>{const k=b.dataset.mode;b.setAttribute('aria-pressed',String(k===prefs.mode||(k==='threads'&&onThreads)));
+  const sel=selectedLessons();
+  document.querySelectorAll('.mode').forEach(b=>{const k=b.dataset.mode;b.setAttribute('aria-pressed',String(k===prefs.mode||(k==='threads'&&onThreads)||(/^L[1-6]$/.test(k)&&sel.includes(+k[1]))));
     if(k==='weak')b.disabled=poolFor('weak').length===0;});
   $('threadBox').classList.toggle('hidden',!onThreads);
   let hidden=[];
@@ -1004,7 +1010,9 @@ function renderSetupCounts(){
   $('lenChips').querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',String(+c.dataset.len===prefs.len)));
   $('lenientChips').querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',String((c.dataset.lenient==='1')===prefs.lenient)));
   const n=Math.min(prefs.len,poolFor(prefs.mode).length);
-  if(screen==='setup')setActs([{t:'Start',sub:n+' items',cls:'pri',id:'startBtn',dis:n===0,fn:()=>start(prefs.mode,prefs.len)}]);
+  const mixLab=sel.length>1?' · Lekce '+sel.join(' + '):'';
+  $('mixNote').textContent=sel.length>1?'Mixing Lekce '+sel.join(' + ')+'. Tap a lesson again to drop it.':'Tap one lesson, or several to mix them.';
+  if(screen==='setup')setActs([{t:'Start',sub:n+' items'+mixLab,cls:'pri',id:'startBtn',dis:n===0,fn:()=>start(prefs.mode,prefs.len)}]);
 }
 
 /* ── screens ── */
@@ -1292,7 +1300,7 @@ renderSetupCounts();
 
 /* test hooks */
 window.CZ={ITEMS,PARADIGMS,LEMMAS,THREADS,get session(){return session},get cur(){return cur},get prefs(){return prefs},get ttsOK(){return ttsOK},get prog(){return prog},get storageOK(){return storageOK},
-  start,next,skip,check,show,poolFor,buildSession,threadCounts,get THREAD_MIN(){return THREAD_MIN},get voice(){return voiceCS},boxOf,weakIds,exportProgress,importProgress,resetProgress,renderProgress,
+  start,next,skip,check,show,poolFor,buildSession,threadCounts,toggleLesson,selectedLessons,get THREAD_MIN(){return THREAD_MIN},get voice(){return voiceCS},boxOf,weakIds,exportProgress,importProgress,resetProgress,renderProgress,
   answer(v){const q=cur.q,u=cur.ui;
     if(q.type==='mc'){u.pick=v;check();return}
     if(q.type==='fill'||q.type==='listen'){u.input.value=v;check();return}
