@@ -307,6 +307,7 @@ input.cz.no{border-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
       <div class="meta">
         <span id="mCount" class="hidden">0 / 0</span>
         <span class="hidden" id="mScore"><b class="ok" id="mRight">0</b> <b class="nr" id="mNear">0</b> <b class="no" id="mWrong">0</b></span>
+        <button class="iconbtn hidden" id="exitBtn" title="End session" aria-label="End session">✕</button>
         <button class="iconbtn" id="themeBtn" title="Theme: auto / light / dark" aria-label="Toggle theme">◐</button>
       </div>
     </div>
@@ -1019,7 +1020,7 @@ function renderSetupCounts(){
 let screen='setup';
 function show(id){screen=id;['setup','quiz','done','progress'].forEach(s=>$(s).classList.toggle('hidden',s!==id));$('app').classList.toggle('in-quiz',id==='quiz'||id==='done');
   $('tabTrain').setAttribute('aria-selected',String(id!=='progress'));$('tabProg').setAttribute('aria-selected',String(id==='progress'));
-  $('mCount').classList.toggle('hidden',id!=='quiz');$('mScore').classList.toggle('hidden',id!=='quiz'&&id!=='done');
+  $('mCount').classList.toggle('hidden',id!=='quiz');$('exitBtn').classList.toggle('hidden',id!=='quiz');$('mScore').classList.toggle('hidden',id!=='quiz'&&id!=='done');
   window.scrollTo(0,0);
   if(id==='setup')renderSetupCounts();
   if(id==='progress')setActs([{t:'Back to training',cls:'sec',fn:()=>show(session?'quiz':'setup')}]);
@@ -1229,8 +1230,13 @@ function feedback(res){
 function paradigmHtml(key){const p=PARADIGMS[key];if(!p)return '';
   const rows=p.rows.map((r,i)=>'<tr>'+r.map(c=>(i===0?'<th>':'<td>')+esc(c)+(i===0?'</th>':'</td>')).join('')+'</tr>').join('');
   return '<h3>'+esc(p.title)+'</h3><table>'+rows+'</table>'+(p.note?'<div class="pn">'+esc(p.note)+'</div>':'')}
+function endSession(){if(!session||screen!=='quiz')return;stopSpeech();const done=session.results.length;
+  if(!done){session=null;cur=null;show('setup');return}
+  session.total=session.items.length;session.items=session.items.slice(0,done);session.partial=done<session.total;finish()}
+$('exitBtn').onclick=endSession;
 function next(){if(!cur||!cur.answered)return;stopSpeech();session.i++;if(session.i>=session.items.length){finish();return}renderItem()}
 document.addEventListener('keydown',e=>{if(screen!=='quiz'||!cur)return;
+  if(e.key==='Escape'){e.preventDefault();endSession();return}
   if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
   if(e.key==='Enter'&&cur.answered){e.preventDefault();next();return}
   if(cur.q.type==='mc'&&!cur.answered&&/^[1-4]$/.test(e.key)){const b=cur.ui.opts.querySelectorAll('.mcb')[+e.key-1];if(b)b.click()}
@@ -1238,10 +1244,10 @@ document.addEventListener('keydown',e=>{if(screen!=='quiz'||!cur)return;
 
 /* ── results ── */
 function finish(){
-  stopSpeech();bumpSession();
+  stopSpeech();if(!(session.partial&&session.results.length<5))bumpSession();
   const s=session,n=s.items.length,score=s.right+s.near*0.5,pct=Math.round(100*score/n);
   $('rPct').textContent=pct+' %';$('rRaw').textContent=s.right+' ✓ · '+s.near+' ◐ · '+s.wrong+' ✗ of '+n;
-  $('rMsg').textContent=pct>=90?'Solid. Push the weak spots next.':pct>=70?'Good base — the misses below are the drill.':'Keep the misses in rotation; the rules are listed under each one.';
+  $('rMsg').textContent=(s.partial?'Ended early after '+n+' of '+s.total+' items. ':'')+(pct>=90?'Solid. Push the weak spots next.':pct>=70?'Good base — the misses below are the drill.':'Keep the misses in rotation; the rules are listed under each one.');
   const groups=(key)=>{const g={};s.items.forEach((q,i)=>{const k=key(q);g[k]=g[k]||{n:0,s:0};g[k].n++;g[k].s+=s.results[i].grade==='ok'?1:s.results[i].grade==='near'?.5:0});return g};
   const rows=(g,lab)=>Object.keys(g).sort().map(k=>{const p=Math.round(100*g[k].s/g[k].n);return '<div class="rrow"><span>'+esc(lab(k))+'</span><span class="pct">'+g[k].s+'/'+g[k].n+'</span><div class="meter"><i style="width:'+p+'%"></i></div></div>'}).join('');
   $('rLes').innerHTML=rows(groups(q=>q.l),k=>'Lekce '+k);$('rTyp').innerHTML=rows(groups(q=>q.type),k=>TYPE_LABEL[k]);$('rTop').innerHTML=rows(groups(q=>q.topic),k=>TOPIC_LABEL[k]||k);
@@ -1300,7 +1306,7 @@ renderSetupCounts();
 
 /* test hooks */
 window.CZ={ITEMS,PARADIGMS,LEMMAS,THREADS,get session(){return session},get cur(){return cur},get prefs(){return prefs},get ttsOK(){return ttsOK},get prog(){return prog},get storageOK(){return storageOK},
-  start,next,skip,check,show,poolFor,buildSession,threadCounts,toggleLesson,selectedLessons,get THREAD_MIN(){return THREAD_MIN},get voice(){return voiceCS},boxOf,weakIds,exportProgress,importProgress,resetProgress,renderProgress,
+  start,next,skip,check,show,poolFor,buildSession,threadCounts,toggleLesson,selectedLessons,endSession,get THREAD_MIN(){return THREAD_MIN},get voice(){return voiceCS},boxOf,weakIds,exportProgress,importProgress,resetProgress,renderProgress,
   answer(v){const q=cur.q,u=cur.ui;
     if(q.type==='mc'){u.pick=v;check();return}
     if(q.type==='fill'||q.type==='listen'){u.input.value=v;check();return}
