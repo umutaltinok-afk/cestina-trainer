@@ -2716,12 +2716,23 @@ function updateProg(q,grade,hint){const p=itemProg(q.id);const sc=grade==='ok'?1
 function bumpSession(){const d=new Date().toLocaleDateString('sv');const st=prog.streak;
   if(st.last!==d){const y=new Date(Date.now()-864e5).toLocaleDateString('sv');st.count=st.last===y?st.count+1:1;st.last=d;st.best=Math.max(st.best||0,st.count)}
   prog.sessions++;saveProg()}
-function exportProgress(){return JSON.stringify({app:'cestina-1-6',v:1,exported:new Date().toISOString(),prefs:{mode:prefs.mode,len:prefs.len,lenient:prefs.lenient},progress:prog})}
-function importProgress(text){const o=JSON.parse(text);const pr=o&&o.progress&&o.progress.items?o.progress:(o&&o.items?o:null);
-  if(!pr)throw new Error('Not a progress export');
-  const items={};for(const id in pr.items){const x=pr.items[id];if(!x||typeof x!=='object')continue;items[id]={b:Math.max(0,Math.min(3,+x.b||0)),n:+x.n||0,s:+x.s||0,h:Array.isArray(x.h)?x.h.slice(-5).map(Number):[],t:+x.t||0}}
-  prog={v:1,items,sessions:+pr.sessions||0,streak:Object.assign({last:null,count:0,best:0},pr.streak||{})};
-  if(o.prefs){if(o.prefs.len)prefs.len=+o.prefs.len;if(typeof o.prefs.lenient==='boolean')prefs.lenient=o.prefs.lenient;savePrefs()}
+function exportProgress(){return JSON.stringify({app:'cestina-1-24',v:1,exported:new Date().toISOString(),prefs:{mode:prefs.mode,len:prefs.len,lenient:prefs.lenient},progress:prog,learn:learnSt})}
+/* import: every value is coerced or dropped — an export file is untrusted input and parts of it end up in innerHTML */
+const DAY_RE=/^\d{4}-\d{2}-\d{2}$/;
+const nat=v=>{v=Math.floor(+v);return Number.isFinite(v)&&v>=0?v:0};
+const isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);
+function importProgress(text){const o=JSON.parse(String(text).replace(/^\uFEFF/,''));const pr=o&&o.progress&&o.progress.items?o.progress:(o&&o.items?o:null);
+  if(!isObj(pr)||!isObj(pr.items))throw new Error('Not a progress export');
+  const ids=new Set(ITEMS.map(q=>q.id));
+  const items={};for(const id in pr.items){if(!ids.has(id))continue;const x=pr.items[id];if(!isObj(x))continue;
+    items[id]={b:Math.max(0,Math.min(3,nat(x.b))),n:nat(x.n),s:Math.max(0,+x.s||0),h:Array.isArray(x.h)?x.h.filter(v=>v===0||v===0.5||v===1).slice(-5):[],t:nat(x.t)}}
+  const st=isObj(pr.streak)?pr.streak:{};
+  prog={v:1,items,sessions:nat(pr.sessions),streak:{last:typeof st.last==='string'&&DAY_RE.test(st.last)?st.last:null,count:nat(st.count),best:nat(st.best)}};
+  /* lesson read marks (exported by the iPhone app, and by this trainer from v2.2) */
+  if(isObj(o.learn)){const ls={};for(const k in o.learn){const x=o.learn[k];if(!LEARN[k]||!isObj(x))continue;const p={n:nat(x.n)};
+      if(typeof x.read==='string'&&x.read)p.read=x.read.slice(0,40);if(Array.isArray(x.secs))p.secs=x.secs.filter(v=>typeof v==='string').slice(0,64);ls[k]=p}
+    learnSt=ls;saveLearn()}
+  if(isObj(o.prefs)){if([10,20,40].includes(+o.prefs.len))prefs.len=+o.prefs.len;if(typeof o.prefs.lenient==='boolean')prefs.lenient=o.prefs.lenient;savePrefs()}
   saveProg();return Object.keys(items).length}
 function resetProgress(){prog={v:1,items:{},sessions:0,streak:{last:null,count:0,best:0}};saveProg()}
 function poolFor(mode){
@@ -2816,11 +2827,11 @@ function setActs(list){
 }
 function fitDock(){const h=$('dock').offsetHeight;document.documentElement.style.setProperty('--dock-h',h+'px')}
 new ResizeObserver(fitDock).observe($('dock'));
-(function(){const d=$('diak');DIAK.forEach(ch=>{const b=document.createElement('button');b.type='button';b.tabIndex=-1;b.textContent=ch;
+(function(){const d=$('diak');DIAK.forEach(ch=>{const b=document.createElement('button');b.type='button';b.tabIndex=-1;b.textContent=ch;b.setAttribute('aria-label','insert '+ch);
   b.addEventListener('pointerdown',e=>{e.preventDefault();insertChar(ch)});d.appendChild(b)});
   const l=document.createElement('button');l.type='button';l.className='len';l.tabIndex=-1;l.textContent='lenient';l.title='Accept stripped diacritics (½ credit)';
   l.addEventListener('pointerdown',e=>{e.preventDefault();prefs.lenient=!prefs.lenient;savePrefs();l.setAttribute('aria-pressed',String(prefs.lenient))});
-  l.setAttribute('aria-pressed',String(prefs.lenient));d.appendChild(l);
+  l.setAttribute('aria-pressed',String(prefs.lenient));l.setAttribute('aria-label','Lenient diacritics, half credit');d.appendChild(l);
 })();
 function showDiak(on){$('diak').classList.toggle('hidden',!on);$('diak').querySelector('.len').setAttribute('aria-pressed',String(prefs.lenient));fitDock()}
 function insertChar(ch){const inp=lastInput;if(!inp||inp.disabled)return;const s=inp.selectionStart??inp.value.length,e=inp.selectionEnd??s;
@@ -2934,7 +2945,8 @@ const R={
 
 /* ── checkers: return {grade, user, cells?} ── */
 const C={
-  mc(q){const u=cur.ui.pick;return {grade:judge(u,q.a),user:u}},
+  /* multiple choice is never lenient: distractors such as levně / levné or ji / jí differ only in the diacritic being tested */
+  mc(q){const u=cur.ui.pick;return {grade:u!=null&&q.a.some(a=>norm(a)===norm(u))?'ok':'no',user:u}},
   fill(q){const u=cur.ui.input.value;return {grade:judge(u,q.a),user:u}},
   listen(q){const u=cur.ui.input.value;return {grade:judge(u,q.a),user:u}},
   table(q){const cells=cur.ui.inputs.map((i,k)=>({user:i.value,grade:judge(i.value,cellAlts(q.a[k]))}));
@@ -3089,7 +3101,7 @@ function saveLearn(){try{localStorage.setItem(LSL,JSON.stringify(learnSt))}catch
 function learnRead(n){const p=learnSt[String(n)];return !!(p&&p.read)}
 function learnState(){return JSON.parse(JSON.stringify(learnSt))}
 function lessonsRead(){return Object.keys(LEARN).filter(k=>learnRead(k)).length}
-function markRead(n){n=+n;if(!LEARN[n])return;const p=learnSt[String(n)]||{};learnSt[String(n)]={read:new Date().toISOString(),n:(p.n||0)+1};saveLearn();
+function markRead(n){n=+n;if(!LEARN[n])return;const p=learnSt[String(n)]||{};learnSt[String(n)]=Object.assign({},p,{read:new Date().toISOString(),n:(p.n||0)+1});saveLearn();
   const row=document.querySelector('.ln-row[data-l="'+n+'"]');if(row)row.classList.add('read');
   const rn=$('lnRead');if(rn)rn.textContent='Lessons read · '+lessonsRead()+' / 24';
   renderSetupCounts();
